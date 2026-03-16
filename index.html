@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <!-- สำคัญมาก: viewport นี้ทำให้แสดงผลถูกต้องบนมือถือ -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Camera Access - Step 1</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: sans-serif;
+      background: #0f0f14;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ===== HEADER ===== */
+    header {
+      width: 100%;
+      max-width: 480px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid #1e1e2e;
+    }
+    header h1 { font-size: 16px; font-weight: 600; color: #fff; }
+    header p  { font-size: 11px; color: #555; margin-top: 2px; }
+    .badge {
+      margin-left: auto;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: #1a1a2e;
+      color: #555;
+    }
+    .badge.on  { background: rgba(0,255,136,0.1); color: #00ff88; }
+    .badge.err { background: rgba(255,51,85,0.1);  color: #ff3355; }
+
+    /* ===== VIDEO CONTAINER ===== */
+    .video-wrap {
+      width: 100%;
+      max-width: 480px;
+      aspect-ratio: 3/4;          /* สัดส่วนแนวตั้งเหมือนกล้องมือถือ */
+      background: #08080f;
+      position: relative;
+      overflow: hidden;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      /* playsinline: สำคัญมากสำหรับ iOS — ป้องกันการเปิด fullscreen อัตโนมัติ */
+    }
+
+    /* placeholder ตอนยังไม่เปิดกล้อง */
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #333;
+      pointer-events: none;
+    }
+    .placeholder-icon {
+      font-size: 48px;
+      opacity: 0.4;
+    }
+    .placeholder p {
+      font-size: 12px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ===== CONTROLS ===== */
+    .controls {
+      width: 100%;
+      max-width: 480px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #0d0d18;
+      border-top: 1px solid #1e1e2e;
+    }
+
+    /* ปุ่มหลัก */
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      background: #00ff88;
+      color: #0a0a0f;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-primary:hover   { background: #00cc6e; }
+    .btn-primary:active  { transform: scale(0.98); }
+    .btn-primary.stop    { background: #ff3355; color: #fff; }
+    .btn-primary.stop:hover { background: #cc2244; }
+    .btn-primary:disabled {
+      background: #1e1e2e;
+      color: #444;
+      cursor: not-allowed;
+    }
+
+    /* ปุ่มรอง */
+    .btn-row { display: flex; gap: 8px; }
+    .btn-secondary {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #2a2a3e;
+      border-radius: 8px;
+      background: transparent;
+      color: #888;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover  { border-color: #00ff88; color: #00ff88; }
+    .btn-secondary:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ===== ERROR BOX ===== */
+    .error-box {
+      width: 100%;
+      max-width: 480px;
+      margin: 12px 20px 0;
+      padding: 12px 14px;
+      background: rgba(255,51,85,0.08);
+      border: 1px solid rgba(255,51,85,0.3);
+      border-radius: 8px;
+      font-size: 12px;
+      color: #ff7799;
+      line-height: 1.6;
+      display: none;        /* ซ่อนไว้ก่อน แสดงเมื่อเกิด error */
+    }
+
+    /* ===== INFO SECTION ===== */
+    .info {
+      width: 100%;
+      max-width: 480px;
+      padding: 14px 20px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+    }
+    .info-card {
+      background: #0d0d18;
+      border: 1px solid #1e1e2e;
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .info-card .val {
+      font-size: 15px;
+      font-weight: 700;
+      color: #00ff88;
+      display: block;
+      margin-bottom: 3px;
+    }
+    .info-card .lbl {
+      font-size: 10px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div>
+      <h1>Camera Access</h1>
+      <p>Step 1 — ขอสิทธิ์เข้าถึงกล้อง</p>
+    </div>
+    <span class="badge" id="statusBadge">Idle</span>
+  </header>
+
+  <!-- VIDEO AREA -->
+  <div class="video-wrap" id="videoWrap">
+    <!-- Placeholder แสดงตอนยังไม่ได้เปิดกล้อง -->
+    <div class="placeholder" id="placeholder">
+      <div class="placeholder-icon">📷</div>
+      <p>กดปุ่มเพื่อเปิดกล้อง</p>
+    </div>
+
+    <!--
+      video element:
+      - autoplay    : เล่นอัตโนมัติทันทีที่ได้รับ stream
+      - playsinline : สำคัญมากบน iOS — ป้องกันการเปิด fullscreen
+      - muted       : จำเป็นต้องใส่เพื่อให้ autoplay ทำงานได้
+    -->
+    <video
+      id="video"
+      autoplay
+      playsinline
+      muted
+      style="display:none"
+    ></video>
+  </div>
+
+  <!-- ERROR MESSAGE -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- CONTROLS -->
+  <div class="controls">
+    <button class="btn-primary" id="mainBtn" onclick="toggleCamera()">
+      เปิดกล้อง
+    </button>
+    <div class="btn-row">
+      <!-- สลับกล้องหน้า/หลัง -->
+      <button class="btn-secondary" id="flipBtn" onclick="flipCamera()" disabled>
+        🔄 สลับกล้อง
+      </button>
+      <!-- จับภาพ -->
+      <button class="btn-secondary" id="snapBtn" onclick="takeSnapshot()" disabled>
+        📸 จับภาพ
+      </button>
+    </div>
+  </div>
+
+  <!-- INFO CARDS -->
+  <div class="info">
+    <div class="info-card">
+      <span class="val" id="infoW">—</span>
+      <span class="lbl">Width</span>
+    </div>
+    <div class="info-card">
+      <span class="val" id="infoH">—</span>
+      <span class="lbl">Height</span>
+    </div>
+    <div class="info-card">
+      <span class="val" id="infoCam">—</span>
+      <span class="lbl">Camera</span>
+    </div>
+  </div>
+
+  <script>
+    // ─────────────────────────────────────
+    //  State
+    // ─────────────────────────────────────
+    let stream      = null;   // MediaStream object
+    let isRunning   = false;  // กล้องเปิดอยู่ไหม
+    let facingMode  = 'environment';  // 'environment' = กล้องหลัง, 'user' = กล้องหน้า
+
+    const video      = document.getElementById('video');
+    const mainBtn    = document.getElementById('mainBtn');
+    const flipBtn    = document.getElementById('flipBtn');
+    const snapBtn    = document.getElementById('snapBtn');
+    const placeholder = document.getElementById('placeholder');
+    const errorBox   = document.getElementById('errorBox');
+    const statusBadge = document.getElementById('statusBadge');
+
+    // ─────────────────────────────────────
+    //  Toggle เปิด/ปิดกล้อง
+    // ─────────────────────────────────────
+    async function toggleCamera() {
+      if (isRunning) {
+        stopCamera();
+      } else {
+        await startCamera();
+      }
+    }
+
+    // ─────────────────────────────────────
+    //  เปิดกล้อง
+    // ─────────────────────────────────────
+    async function startCamera() {
+      hideError();
+      setStatus('loading', 'กำลังเชื่อมต่อ...');
+      mainBtn.disabled = true;
+
+      try {
+        // ── ขอสิทธิ์กล้อง ──────────────────────────────────────
+        //
+        // constraints คือการกำหนดคุณสมบัติของกล้องที่ต้องการ
+        //
+        // facingMode:
+        //   'environment' = กล้องด้านหลัง (ใช้สำหรับ scan/detect)
+        //   'user'        = กล้องด้านหน้า (selfie)
+        //
+        // width/height ใช้ ideal เพื่อให้ browser เลือก
+        //   resolution ที่ใกล้เคียงที่สุด ไม่ force ตายตัว
+        //
+        const constraints = {
+          video: {
+            facingMode: facingMode,
+            width:  { ideal: 1280 },
+            height: { ideal: 720  }
+          },
+          audio: false   // ไม่ต้องการไมค์
+        };
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        // ── ได้รับสิทธิ์แล้ว ────────────────────────────────────
+
+        // ผูก stream เข้ากับ video element
+        video.srcObject = stream;
+
+        // รอให้ metadata โหลด (ได้ขนาดวิดีโอจริง)
+        await new Promise((resolve) => {
+          video.onloadedmetadata = resolve;
+        });
+
+        // เล่น
+        await video.play();
+
+        // อัพเดต UI
+        video.style.display = 'block';
+        placeholder.style.display = 'none';
+        isRunning = true;
+
+        mainBtn.textContent = 'ปิดกล้อง';
+        mainBtn.className   = 'btn-primary stop';
+        mainBtn.disabled    = false;
+        flipBtn.disabled    = false;
+        snapBtn.disabled    = false;
+
+        setStatus('on', 'Active');
+        updateInfoCards();
+
+      } catch (err) {
+        // ── จัดการ error ────────────────────────────────────────
+        mainBtn.disabled = false;
+        handleError(err);
+      }
+    }
+
+    // ─────────────────────────────────────
+    //  ปิดกล้อง
+    // ─────────────────────────────────────
+    function stopCamera() {
+      if (stream) {
+        // หยุดทุก track ใน stream (สำคัญ — ไม่งั้นไฟกล้องยังติดอยู่)
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      video.srcObject    = null;
+      video.style.display = 'none';
+      placeholder.style.display = 'flex';
+
+      isRunning = false;
+      mainBtn.textContent = 'เปิดกล้อง';
+      mainBtn.className   = 'btn-primary';
+      flipBtn.disabled    = true;
+      snapBtn.disabled    = true;
+
+      setStatus('', 'Idle');
+      resetInfoCards();
+    }
+
+    // ─────────────────────────────────────
+    //  สลับกล้องหน้า ↔ หลัง
+    // ─────────────────────────────────────
+    async function flipCamera() {
+      facingMode = (facingMode === 'environment') ? 'user' : 'environment';
+      if (isRunning) {
+        stopCamera();
+        await startCamera();
+      }
+    }
+
+    // ─────────────────────────────────────
+    //  จับภาพ (Snapshot)
+    // ─────────────────────────────────────
+    function takeSnapshot() {
+      if (!isRunning) return;
+
+      // วาดเฟรมปัจจุบันลง canvas ชั่วคราว
+      const canvas = document.createElement('canvas');
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+
+      // ดาวน์โหลดเป็น .jpg
+      const link = document.createElement('a');
+      link.download = `snapshot-${Date.now()}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg', 0.92);
+      link.click();
+    }
+
+    // ─────────────────────────────────────
+    //  จัดการ Error
+    // ─────────────────────────────────────
+    function handleError(err) {
+      console.error('Camera error:', err);
+      setStatus('err', 'Error');
+
+      let message = '';
+
+      switch (err.name) {
+        case 'NotAllowedError':
+          // ผู้ใช้กด "ปฏิเสธ" หรือ browser block
+          message = `
+            ❌ ถูกปฏิเสธการเข้าถึงกล้อง<br><br>
+            วิธีแก้:<br>
+            • iOS Safari: Settings → Safari → Camera → Allow<br>
+            • Android Chrome: แตะไอคอนล็อกที่ address bar → Camera → Allow<br>
+            • แล้ว refresh หน้าเว็บ
+          `;
+          break;
+
+        case 'NotFoundError':
+          message = '❌ ไม่พบกล้องบนอุปกรณ์นี้';
+          break;
+
+        case 'NotReadableError':
+          message = '❌ กล้องกำลังถูกใช้งานโดยแอปอื่น กรุณาปิดแอปอื่นก่อน';
+          break;
+
+        case 'OverconstrainedError':
+          // กล้องหลังไม่มี ให้ลองกล้องหน้าแทน
+          message = '⚠️ ไม่พบกล้องที่ต้องการ กำลังลองกล้องอื่น...';
+          showError(message);
+          facingMode = 'user';
+          setTimeout(startCamera, 1000);
+          return;
+
+        default:
+          if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            message = `
+              ❌ ต้องใช้ HTTPS เท่านั้น<br><br>
+              กล้องไม่สามารถทำงานบน HTTP ได้ (ยกเว้น localhost)<br>
+              กรุณา deploy บน HTTPS หรือใช้ localhost สำหรับทดสอบ
+            `;
+          } else {
+            message = `❌ เกิดข้อผิดพลาด: ${err.message || err.name}`;
+          }
+      }
+
+      showError(message);
+    }
+
+    // ─────────────────────────────────────
+    //  Helper Functions
+    // ─────────────────────────────────────
+    function showError(msg) {
+      errorBox.innerHTML = msg;
+      errorBox.style.display = 'block';
+    }
+
+    function hideError() {
+      errorBox.style.display = 'none';
+    }
+
+    function setStatus(type, text) {
+      statusBadge.textContent = text;
+      statusBadge.className   = 'badge ' + type;
+    }
+
+    function updateInfoCards() {
+      const track    = stream?.getVideoTracks()[0];
+      const settings = track?.getSettings();
+
+      document.getElementById('infoW').textContent   = settings?.width  || video.videoWidth  || '—';
+      document.getElementById('infoH').textContent   = settings?.height || video.videoHeight || '—';
+      document.getElementById('infoCam').textContent = facingMode === 'environment' ? 'Back' : 'Front';
+    }
+
+    function resetInfoCards() {
+      document.getElementById('infoW').textContent   = '—';
+      document.getElementById('infoH').textContent   = '—';
+      document.getElementById('infoCam').textContent = '—';
+    }
+
+    // ─────────────────────────────────────
+    //  ตรวจสอบว่า Browser รองรับหรือไม่
+    // ─────────────────────────────────────
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showError('❌ Browser นี้ไม่รองรับ Camera API<br>กรุณาใช้ Chrome, Safari, Firefox เวอร์ชันล่าสุด');
+      mainBtn.disabled = true;
+    }
+  </script>
+
+</body>
+</html>
