@@ -1,51 +1,217 @@
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parasite AI Detection</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+
+    <style>
+        /* 2. ส่วนตกแต่ง (CSS) สไตล์มินิมอล โทนขาว-ฟ้า */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #ffffff; /* พื้นหลังสีขาวสะอาด */
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            text-align: center;
+            width: 100%;
+            max-width: 640px;
+            padding: 20px;
+        }
+
+        h2 {
+            font-weight: 300;
+            letter-spacing: 1px;
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+
+        /* ส่วนแสดงผลกล้องและ AI */
+        .camera-box {
+            position: relative;
+            width: 100%;
+            /* กำหนดสัดส่วน 4:3 เพื่อให้พื้นที่คงที่ */
+            aspect-ratio: 4 / 3; 
+            background: #f1f3f5;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+        }
+
+        video {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* ให้ภาพเต็มพื้นที่ */
+            z-index: 1;
+        }
+
+        canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2; /* วางซ้อนทับวิดีโอเพื่อวาดกรอบ */
+        }
+
+        /* ปุ่มกดสีฟ้า */
+        .controls {
+            margin-top: 30px;
+        }
+
+        button {
+            background-color: #3498db; /* สีฟ้า */
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+        }
+
+        button:hover {
+            background-color: #2980b9; /* สีฟ้าเข้มขึ้นเมื่อเอาเมาส์วาง */
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* แถบสถานะ */
+        .status {
+            margin-top: 20px;
+            font-size: 14px;
+            color: #7f8c8d;
+            background: #f8f9fa;
+            padding: 10px 20px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>PARASITE AI</h2>
+    
+    <div class="camera-box">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="detection-canvas"></canvas>
+    </div>
+
+    <div class="controls">
+        <button id="start-btn">Start Detection</button>
+    </div>
+    
+    <div class="status" id="status-text">กำลังเตรียมระบบ...</div>
+</div>
 
 <script>
+    // 3. ส่วนคำสั่งควบคุม (JavaScript)
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('detection-canvas');
     const ctx = canvas.getContext('2d');
+    const button = document.getElementById('start-btn');
     const statusText = document.getElementById('status-text');
-    let model;
+    let model; // ตัวแปรเก็บโมเดล AI
 
-    // 1. โหลดโมเดล AI
+    // --- ขั้นตอนที่ 1: โหลดโมเดล AI เมื่อเปิดหน้าเว็บ ---
     async function loadModel() {
         try {
-            statusText.innerText = "กำลังโหลดโมเดล AI...";
-            // ชี้ไปที่โฟลเดอร์ model ที่เราสร้างไว้
+            statusText.innerText = "สถานะ: กำลังโหลดโมเดล AI (11MB)...";
+            // ชี้ไปที่โฟลเดอร์ model ที่คุณสร้างไว้ใน GitHub
+            // ไฟล์ต้องอยู่ที่: your-repo/model/model.json
             model = await tf.loadGraphModel('./model/model.json');
-            statusText.innerText = "โมเดลพร้อม! กด Start เพื่อเริ่มตรวจจับ";
+            statusText.innerText = "สถานะ: โมเดลพร้อม! กด Start ได้เลย";
+            button.disabled = false; // เปิดให้กดปุ่มได้
         } catch (e) {
-            statusText.innerText = "โหลดโมเดลไม่สำเร็จ: " + e.message;
+            statusText.innerText = "สถานะ: โหลดโมเดลไม่สำเร็จ: " + e.message;
+            console.error(e);
         }
     }
 
-    // 2. ฟังก์ชันตรวจจับ (Inference)
-    async function detect() {
-        if (model && video.readyState === 4) {
-            const predictions = await model.executeAsync(tf.browser.fromPixels(video).expandDims(0));
+    // --- ขั้นตอนที่ 2: เริ่มเปิดกล้องเมื่อกดปุ่ม ---
+    button.addEventListener('click', async () => {
+        statusText.innerText = "สถานะ: กำลังขอเข้าถึงกล้อง...";
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    facingMode: "environment", // ใช้กล้องหลังสำหรับส่องพยาธิ
+                    width: { ideal: 1280 }, // กำหนดความละเอียดที่ต้องการ
+                    height: { ideal: 720 }
+                },
+                audio: false // ไม่เอาเสียง
+            });
             
-            // ล้างหน้าจอ Canvas ก่อนวาดใหม่
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            video.srcObject = stream;
+            
+            // เมื่อวิดีโอโหลดข้อมูลสำเร็จ ให้ตั้งค่า Canvas และเริ่มตรวจจับ
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                statusText.innerText = "สถานะ: กำลังตรวจจับแบบ Real-time...";
+                button.disabled = true; // ปิดปุ่มหลังจากเริ่มทำงานแล้ว
+                button.innerText = "Detecting...";
+                runDetection(); // เริ่มลูปตรวจจับ
+            };
 
-            // หมายเหตุ: ตรงนี้ต้องเขียน Logic การดึงค่าพิกัดพยาธิจากโมเดล YOLO 
-            // ซึ่งแต่ละโมเดลจะมี Output Format ต่างกันเล็กน้อย
-            // หากคุณรันแล้วกรอบไม่ขึ้น บอกผมนะครับ เราจะมาจูนค่าพิกัดกัน
+        } catch (err) {
+            console.error("Error: ", err);
+            statusText.innerText = "สถานะ: Error - " + err.message;
+            alert("ไม่สามารถเปิดกล้องได้: กรุณาใช้ HTTPS และอนุญาตสิทธิ์การเข้าถึง");
         }
-        requestAnimationFrame(detect);
-    }
-
-    document.getElementById('start-btn').addEventListener('click', async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment" },
-            audio: false
-        });
-        video.srcObject = stream;
-        video.onloadedmetadata = () => {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            detect();
-        };
     });
 
+    // --- ขั้นตอนที่ 3: ลูปตรวจจับ AI แบบ Real-time ---
+    async function runDetection() {
+        if (!model) return;
+
+        // ตรรกะ: นำภาพจาก Video ส่งให้ AI ประมวลผล
+        // 1. แปลงภาพวิดีโอเป็น Tensor (ตัวเลขที่ AI เข้าใจ)
+        const tfImg = tf.browser.fromPixels(video);
+        
+        // 2. ส่งให้โมเดลทำนาย (Inference)
+        // expandDims(0) เพื่อเพิ่มมิติ Batch (1, width, height, 3)
+        const prediction = await model.predict(tfImg.expandDims(0));
+        
+        // 3. ล้างหน้าจอ Canvas เก่าก่อนวาดใหม่
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // --- ตรงนี้คือส่วนที่คุณต้องเขียนเพิ่ม ---
+        // คุณต้องแกะค่าพิกัดพยาธิจาก 'prediction' (Output ของ YOLOv8)
+        // และใช้ ctx.strokeRect เพื่อวาดกรอบสี่เหลี่ยมลงบน Canvas
+        // ตัวอย่างเช่น: 
+        // ctx.strokeStyle = '#3498db'; // สีฟ้า
+        // ctx.lineWidth = 4;
+        // ctx.strokeRect(x, y, width, height);
+
+        // วนลูปทำงานซ้ำเพื่อความ Real-time
+        requestAnimationFrame(runDetection);
+    }
+
+    // เริ่มโหลดโมเดลทันทีที่เปิดหน้าเว็บ
+    button.disabled = true; // ปิดปุ่มไว้ก่อนจนกว่าโมเดลจะโหลดเสร็จ
     loadModel();
 </script>
+
+</body>
+</html>
